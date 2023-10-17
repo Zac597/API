@@ -1,17 +1,9 @@
-const { hash } = require("bcryptjs")
+const { hash, compare } = require("bcryptjs")
 const AppError = require("../utils/AppError")
 
 const sqliteConnection = require("../database/sqlite")
 
 class UsersController {
-/*
-  * index - Get para listar vários registros.
-  * show - Get para exibir um registro especifico.
-  * create - POST para criar um registro.
-  * update - PUT para atualizar um registro.
-  * delete - DELETE para remover um registro.
-*/
-
   async create(request, response) {
     const {name, email, password} = request.body;
   
@@ -33,7 +25,7 @@ class UsersController {
   }
 
   async update(request, response) {
-    const { name, email } = request.body;
+    const { name, email, password, old_password } = request.body;
     const { id } = request.params;
 
     const database = await sqliteConnection();
@@ -45,20 +37,35 @@ class UsersController {
 
     const userWithUpdateEmail = await database.get("SELECT * FROM users WHERE email = (?)", [email]);
 
-    if(userWithUpdateEmail && userWithUpdateEmail.id !== id){
+    if(userWithUpdateEmail && userWithUpdateEmail.id !== user.id){
       throw new AppError("Este e-mail já está em uso.");
     }
     
-    user.name = name;
-    user.email = email;
+    user.name = name ?? user.name;
+    user.email = email ?? user.email;
+
+    if(password && !old_password){
+      throw new AppError("Você precisa informar a senha antiga para definir a nova senha")
+    }
+
+    if(password && old_password){
+      const checkOldPassword = await compare(old_password, user.password);
+
+      if(!checkOldPassword) {
+        throw new AppError("A senha antiga não confere.");
+      }
+
+      user.password = await hash(password, 8);
+    }
 
     await database.run(`
       UPDATE users SET
       name = ?,
       email = ?,
-      updated_at = ?
+      password = ?,
+      updated_at = DATETIME('now')
       WHERE id = ?`,
-      [user.name, user.email, new Date(), id]
+      [user.name, user.email, user.password, id]
     );
 
     return response.status(200).json();
